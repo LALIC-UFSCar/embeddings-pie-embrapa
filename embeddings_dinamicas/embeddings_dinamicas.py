@@ -10,6 +10,46 @@ from torch.utils.data import Dataset, DataLoader
 import transformers
 from transformers import RobertaModel, RobertaTokenizer
 
+# GET PARAMETERS ******************************************************************************
+opcoes_modelos = ['roberta-base', 'roberta-base-tokenizer-fast', 'roberta-base-causal-ml', 'bertimbau-base', 'bertimbau-large']
+
+qtde_parametros = len(sys.argv)
+config_modelo_escolhido = "roberta-base"
+if (qtde_parametros >= 2):
+    # read folder name in which the texts are in
+    pasta = sys.argv[1]
+
+    if qtde_parametros >= 3:
+        if sys.argv[2] in opcoes_modelos:
+            config_modelo_escolhido = sys.argv[2]
+        else:
+            print("Erro no nome de configuração do modelo!\n")
+            print("As opções de configuração de modelo são:")
+            print("\troberta-base | roberta-base-tokenizer-fast | roberta-base-causal-ml | bertimbau-base | bertimbau-large")
+            print("Comande: python3 embeddings_dinamicas.py <pasta-de-arquivos-txt-corpus>/ | <opcao-config-modelo>")
+            print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ roberta-base")
+            sys.exit()
+else:
+    print("Erro de sintaxe!\n")
+    print("Comande: python3 embeddings_dinamicas.py <pasta-de-arquivos-txt-corpus>/ | <opcao-config-modelo>")
+    print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/")
+    print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ roberta-base")
+    print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ roberta-base-tokenizer-fast")
+    print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ roberta-base-causal-ml")
+    print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ bertimbau-base")
+    print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ bertimbau-large")
+    sys.exit()
+
+try:
+    textos = os.listdir(pasta)
+except:
+    print("Nome de pasta inválida")
+    sys.exit()
+
+files_dic = {"textos": textos}
+df_train = pd.DataFrame(files_dic)
+
+# CONFIGURATIONS ******************************************************************************
 class Settings:
     batch_size=16
     max_len=350
@@ -56,34 +96,6 @@ class CommonLitRoBERTa(nn.Module):
         output = self.roberta(ids, attention_mask=mask)
         return output
 
-model = CommonLitRoBERTa("roberta-base")
-model.to(Settings.device)
-
-tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-
-# GET PARAMETERS ******************************************************************************
-qtde_parametros = len(sys.argv)
-
-if (qtde_parametros >= 2):
-  # read folder name in which the texts are in
-  pasta = sys.argv[1]
-
-else:
-  print("Erro de sintaxe!\n")
-  print("Comande: python3 embeddings_dinamicas.py <pasta-de-arquivos-txt-corpus>/")
-  print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/")
-  sys.exit()
-#fim if
-
-try:
-  textos = os.listdir(pasta)
-except:
-  print("Nome de pasta inválida")
-  sys.exit()
-
-files_dic = {"textos": textos}
-df_train = pd.DataFrame(files_dic)
-
 def train_tokenizer(df_train, tokenizer):
     # load dataset and train data
     train_dataset = TrainValidDataset(df_train, tokenizer, Settings.max_len)
@@ -100,6 +112,7 @@ def train_tokenizer(df_train, tokenizer):
 
     # create model with ids and masks
     output = model(ids, mask)
+    return output
     '''
     print(output)
 
@@ -126,22 +139,48 @@ def train_tokenizer(df_train, tokenizer):
     pd.DataFrame(pooled_embeddings.numpy()).head()
     '''
 
-train_tokenizer(df_train, tokenizer)
+# RUN MODELS ******************************************************************************
+match config_modelo_escolhido:
+    case 'roberta-base':
+        # RoBERTa base model
+        model = CommonLitRoBERTa("roberta-base")
+        model.to(Settings.device)
+        tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+        roberta_model = train_tokenizer(df_train, tokenizer)
+        torch.save(roberta_model, "roberta-model.ckpt")
 
-from transformers import RobertaTokenizerFast
+    case 'roberta-base-tokenizer-fast':
+        #RoBERTa Fast Tokenizer
+        from transformers import RobertaTokenizerFast
+        tokenizer_fast = RobertaTokenizerFast.from_pretrained("roberta-base")
+        roberta_model = train_tokenizer(df_train, tokenizer_fast)
+        torch.save(roberta_model, "roberta-base-model.ckpt")
 
-tokenizer_fast = RobertaTokenizerFast.from_pretrained("roberta-base")
-tokenizer_fast
+    case 'roberta-base-causal-ml':
+        #RoBERTa for Causal ML
+        from transformers import AutoTokenizer, RobertaForCausalLM, AutoConfig
+        tokenizer_causallm = AutoTokenizer.from_pretrained("roberta-base")
+        config = AutoConfig.from_pretrained("roberta-base")
+        config.is_decoder = True
+        model = RobertaForCausalLM.from_pretrained("roberta-base", config=config)
+        model.to(Settings.device)
+        roberta_model = train_tokenizer(df_train, tokenizer_causallm)
+        torch.save(roberta_model, "roberta-base-causal-ml-model.ckpt")
 
-train_tokenizer(df_train, tokenizer_fast)
+    case 'bertimbau-base':
+        # BERT Base
+        from transformers import AutoModel, AutoTokenizer
+        tokenizer_bertimbau_base = AutoTokenizer.from_pretrained('neuralmind/bert-base-portuguese-cased')
+        model = AutoModel.from_pretrained('neuralmind/bert-base-portuguese-cased')
+        model.to(Settings.device)
+        bertimbau_model = train_tokenizer(df_train, tokenizer_bertimbau_base)
+        torch.save(bertimbau_model, "bertimbau-base-model.ckpt")
 
-from transformers import AutoTokenizer, RobertaForCausalLM, AutoConfig
-import torch
-
-tokenizer_causallm = AutoTokenizer.from_pretrained("roberta-base")
-config = AutoConfig.from_pretrained("roberta-base")
-config.is_decoder = True
-model = RobertaForCausalLM.from_pretrained("roberta-base", config=config)
-model.to(Settings.device)
-
-train_tokenizer(df_train, tokenizer_causallm)
+    case 'bertimbau-large':
+        # BERT Large
+        from transformers import AutoModel, AutoTokenizer
+        tokenizer_bertimbau_large = AutoTokenizer.from_pretrained('neuralmind/bert-large-portuguese-cased')
+        model = AutoModel.from_pretrained('neuralmind/bert-large-portuguese-cased')
+        model.to(Settings.device)
+        bertimbau_model = train_tokenizer(df_train, tokenizer_bertimbau_large)
+        torch.save(bertimbau_model, "bertimbau-large-model.ckpt")
