@@ -1,5 +1,5 @@
 # Embeddings Dinâmicas PIE
-Este projeto tem o objetivo de gerar embeddings dinâmicas dos textos de projeto da Embapa.
+Este projeto tem o objetivo de gerar embeddings dinâmicas e um modelo linguístico a partir dos textos de projeto da Embapa.
 
 ## Pré-requisitos
 Antes de executar o projeto, certifique-se de ter os seguintes requisitos atendidos:
