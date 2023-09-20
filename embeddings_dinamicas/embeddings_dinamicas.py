@@ -1,18 +1,14 @@
 import os
 import sys
 import numpy as np
-import pandas as pd
 import random
-from sklearn.model_selection import train_test_split
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-import transformers
-from transformers import RobertaModel, RobertaTokenizer
-import tqdm
+from transformers import RobertaConfig, RobertaForMaskedLM, RobertaTokenizer, RobertaTokenizerFast, pipeline
+from transformers import pipeline, BertModel, BertConfig, BertTokenizer, BertForPreTraining
+from tqdm.auto import tqdm
 
 # GET PARAMETERS ******************************************************************************
-opcoes_modelos = ['roberta-base', 'roberta-base-tokenizer-fast', 'roberta-base-causal-ml', 'bertimbau-base', 'bertimbau-large']
+opcoes_modelos = ['roberta-base', 'roberta-base-tokenizer-fast', 'roberta-base-causal-ml', 'bertimbau-base', 'bertimbau-large', 'bertimbau-automatic']
 
 qtde_parametros = len(sys.argv)
 config_modelo_escolhido = "roberta-base"
@@ -26,7 +22,7 @@ if (qtde_parametros >= 2):
         else:
             print("Erro no nome de configuração do modelo!\n")
             print("As opções de configuração de modelo são:")
-            print("\troberta-base | roberta-base-tokenizer-fast | roberta-base-causal-ml | bertimbau-base | bertimbau-large")
+            print("\troberta-base | roberta-base-tokenizer-fast | roberta-base-causal-ml | bertimbau-base | bertimbau-large | bertimbau-automatic")
             print("Comande: python3 embeddings_dinamicas.py <pasta-de-arquivos-txt-corpus>/ | <opcao-config-modelo>")
             print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ roberta-base")
             sys.exit()
@@ -39,6 +35,7 @@ else:
     print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ roberta-base-causal-ml")
     print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ bertimbau-base")
     print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ bertimbau-large")
+    print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ bertimbau-automatic")
     sys.exit()
 
 try:
@@ -50,7 +47,11 @@ except:
 textos_com_caminhos = []
 for t in textos:
     textos_com_caminhos.append(pasta+t)
-textos = textos_com_caminhos
+
+text_content = []
+for t in textos_com_caminhos:
+    with open(t, 'r', encoding='utf-8') as fp:
+        text_content.append(fp.read())
 
 # CONFIGURATIONS ******************************************************************************
 class Settings:
@@ -58,6 +59,19 @@ class Settings:
     max_len= 512
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seed = 318
+
+class Dataset(torch.utils.data.Dataset):
+    def __init__(self, encodings):
+        # store encodings internally
+        self.encodings = encodings
+
+    def __len__(self):
+        # return the number of samples
+        return self.encodings['input_ids'].shape[0]
+
+    def __getitem__(self, i):
+        # return dictionary of input_ids, attention_mask, and labels for index i
+        return {key: tensor[i] for key, tensor in self.encodings.items()}
 
 def set_seed(seed):
     random.seed(seed)
@@ -70,84 +84,36 @@ def set_seed(seed):
 
 set_seed(Settings.seed)
 
-class TrainValidDataset(Dataset):
-    def __init__(self, textos, tokenizer, max_len):
-        self.texts = textos
-        self.tokenizer = tokenizer
-        self.max_len = max_len
+def tokenize_texts(textos, tokenizer):
+    batch = tokenizer(textos, max_length=Settings.max_len, padding='max_length', truncation=True)
+    labels = torch.tensor(batch["input_ids"])
+    mask = torch.tensor(batch["attention_mask"])
+    # make copy of labels tensor, this will be input_ids
+    input_ids = labels.detach().clone()
+    # create random array of floats with equal dims to input_ids
+    rand = torch.rand(input_ids.shape)
+    # mask random 15% where token is not 0 [PAD], 1 [CLS], or 2 [SEP]
+    mask_arr = (rand < .15) * (input_ids != 0) * (input_ids != 1) * (input_ids != 2)
+    # loop through each row in input_ids tensor (cannot do in parallel)
+    for i in range(input_ids.shape[0]):
+        # get indices of mask positions from mask array
+        selection = torch.flatten(mask_arr[i].nonzero()).tolist()
+        # mask input_ids
+        input_ids[i, selection] = 3  # our custom [MASK] token == 3
 
-    def __len__(self):
-        return len(self.texts)
+    return {'input_ids': input_ids, 'attention_mask': mask, 'labels': labels}
 
-    def __getitem__(self, idx):
-        print(idx)
-        text = self.texts[idx]
-        batch_tokenized = self.tokenizer.encode_plus(text, truncation=True, add_special_tokens=True, max_length=self.max_len, padding="max_length")
-
-        labels = torch.LongTensor(batch_tokenized["input_ids"])
-        mask = torch.LongTensor(batch_tokenized["attention_mask"])
-
-        # make copy of labels tensor, this will be input_ids
-        input_ids = labels.detach().clone()
-        # create random array of floats with equal dims to input_ids
-        rand = torch.rand(input_ids.shape)
-        # mask random 15% where token is not 0 [PAD], 1 [CLS], or 2 [SEP]
-        mask_arr = (rand < .15) * (input_ids != 0) * (input_ids != 1) * (input_ids != 2)
-        # loop through each row in input_ids tensor (cannot do in parallel)
-        for i in range(input_ids.shape[0]):
-            # get indices of mask positions from mask array
-            selection = torch.flatten(mask_arr[i].nonzero()).tolist()
-            # mask input_ids
-            input_ids[i, selection] = 3  # our custom [MASK] token == 3
-        
-        return {
-            "input_ids": input_ids,
-            "attention_mask": mask,
-            "labels": labels
-        }
-    
-class Dataset(Dataset):
-    def __init__(self, encodings):
-        # store encodings internally
-        self.encodings = encodings
-
-    def __len__(self):
-        # return the number of samples
-        print(self.encodings)
-        return self.encodings['input_ids'].shape[0]
-
-    def __getitem__(self, i):
-        # return dictionary of input_ids, attention_mask, and labels for index i
-        return {
-            key: tensor[i] for key,
-            tensor in self.encodings.items()
-        }
-
-
-
-class CommonLitRoBERTa(nn.Module):
-    def __init__(self, pretrained_path):
-        super().__init__()
-        self.roberta = RobertaModel.from_pretrained(pretrained_path)
-
-    def forward(self, ids, mask):
-        output = self.roberta(ids, attention_mask=mask)
-        return output
-
-def train_tokenizer(textos, tokenizer):
-    # load dataset and train data
-    encodings = TrainValidDataset(textos, tokenizer, Settings.max_len)
-    print(encodings["input_ids"])
-
+def train_model(textos, tokenizer, model):
+    encodings = tokenize_texts(textos, tokenizer)
     dataset = Dataset(encodings)
-    loader = DataLoader(dataset, batch_size=Settings.batch_size, shuffle=True, num_workers=2, pin_memory=True)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=Settings.batch_size, shuffle=True)
 
-    # inicialize batch
-    batch = next(iter(loader))
-
+    # and move our model over to the selected device
+    model.to(Settings.device)
+    # activate training mode
     model.train()
+    # initialize optimizer
     optim = torch.optim.AdamW(model.parameters(), lr=1e-4)
-
     epochs = 2
 
     for epoch in range(epochs):
@@ -161,8 +127,7 @@ def train_tokenizer(textos, tokenizer):
             attention_mask = batch['attention_mask'].to(Settings.device)
             labels = batch['labels'].to(Settings.device)
             # process
-            outputs = model(input_ids, attention_mask=attention_mask,
-                            labels=labels)
+            outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
             # extract loss
             loss = outputs.loss
             # calculate loss for every parameter that needs grad update
@@ -173,45 +138,64 @@ def train_tokenizer(textos, tokenizer):
             loop.set_description(f'Epoch {epoch}')
             loop.set_postfix(loss=loss.item())
 
-    return model
-    
-
 # RUN MODELS ******************************************************************************
 match config_modelo_escolhido:
     case 'roberta-base':
         # RoBERTa base model
-        model = CommonLitRoBERTa("roberta-base")
-        model.to(Settings.device)
         tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-        roberta_model = train_tokenizer(textos, tokenizer)
-        torch.save(roberta_model, "roberta-model.ckpt")
+        config = RobertaConfig(
+            vocab_size=50_265,  # we align this to the tokenizer vocab_size
+            max_position_embeddings=514,
+            hidden_size=768,
+            num_attention_heads=12,
+            num_hidden_layers=6,
+            type_vocab_size=1
+        )
+        model = RobertaForMaskedLM.from_pretrained("roberta-base", config=config)
+        roberta_trained_model = train_model(textos, tokenizer, model)
+        torch.save(roberta_trained_model, "roberta-masked-ml.ckpt")
 
     case 'roberta-base-tokenizer-fast':
         #RoBERTa Fast Tokenizer
-        from transformers import RobertaTokenizerFast
         tokenizer_fast = RobertaTokenizerFast.from_pretrained("roberta-base")
-        roberta_model = train_tokenizer(textos, tokenizer_fast)
-        torch.save(roberta_model, torch.optim.AdamWd("roberta-base"))
-        config.is_decoder = True
-        model = RobertaForCausalLM.from_pretrained("roberta-base", config=config)
-        model.to(Settings.device)
-        roberta_model = train_tokenizer(textos, tokenizer_causallm)
-        torch.save(roberta_model, "roberta-base-causal-ml-model.ckpt")
+        config = RobertaConfig(
+            vocab_size=50_265,  # we align this to the tokenizer vocab_size
+            max_position_embeddings=514,
+            hidden_size=768,
+            num_attention_heads=12,
+            num_hidden_layers=6,
+            type_vocab_size=1
+        )
+        model = RobertaForMaskedLM.from_pretrained("roberta-base", config=config)
+        roberta_trained_model = train_model(textos, tokenizer_fast, model)
+        torch.save(roberta_trained_model, "roberta-masked-ml-fast.ckpt")
 
     case 'bertimbau-base':
         # BERT Base
-        from transformers import AutoModel, AutoTokenizer
-        tokenizer_bertimbau_base = AutoTokenizer.from_pretrained('neuralmind/bert-base-portuguese-cased')
-        model = AutoModel.from_pretrained('neuralmind/bert-base-portuguese-cased')
-        model.to(Settings.device)
-        bertimbau_model = train_tokenizer(textos, tokenizer_bertimbau_base)
+        tokenizer_bertimbau_base = RobertaTokenizer.from_pretrained('neuralmind/bert-base-portuguese-cased')
+        model = RobertaForMaskedLM.from_pretrained('neuralmind/bert-base-portuguese-cased')
+        bertimbau_model = train_model(textos, tokenizer_bertimbau_base, model)
         torch.save(bertimbau_model, "bertimbau-base-model.ckpt")
 
     case 'bertimbau-large':
         # BERT Large
-        from transformers import AutoModel, AutoTokenizer
-        tokenizer_bertimbau_large = AutoTokenizer.from_pretrained('neuralmind/bert-large-portuguese-cased')
-        model = AutoModel.from_pretrained('neuralmind/bert-large-portuguese-cased')
-        model.to(Settings.device)
-        bertimbau_model = train_tokenizer(textos, tokenizer_bertimbau_large)
+        tokenizer_bertimbau_large = RobertaTokenizer.from_pretrained('neuralmind/bert-large-portuguese-cased')
+        model = RobertaForMaskedLM.from_pretrained('neuralmind/bert-large-portuguese-cased')
+        bertimbau_model = train_model(textos, tokenizer_bertimbau_large, model)
         torch.save(bertimbau_model, "bertimbau-large-model.ckpt")
+
+    case 'bertimbau-automatic':
+        # Auto Pipeline from Transformers
+        config = BertConfig(
+            vocab_size=50_265,  # we align this to the tokenizer vocab_size
+            max_position_embeddings=514,
+            hidden_size=768,
+            num_attention_heads=12,
+            num_hidden_layers=6,
+            type_vocab_size=1
+        )
+        model = BertForPreTraining.from_pretrained('neuralmind/bert-large-portuguese-cased')
+        tokenizer = BertTokenizer.from_pretrained('neuralmind/bert-large-portuguese-cased', config = config)
+        pipe = pipeline('fill-mask', model=model, tokenizer=tokenizer)
+
+        pipe('Tinha uma [MASK] no meio do caminho.')
