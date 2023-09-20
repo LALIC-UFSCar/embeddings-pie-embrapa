@@ -5,6 +5,7 @@ Este projeto tem o objetivo de gerar embeddings dinâmicas e um modelo linguíst
 Antes de executar o projeto, certifique-se de ter os seguintes requisitos atendidos:
 
 - Python 3 instalado
+- python3-venv (opcional)
 
 ## Instalação
 1. Clone este repositório para o seu ambiente local:
@@ -16,7 +17,7 @@ git clone https://github.com/LALIC-UFSCar/embeddings-pie-embrapa.git
 2. Crie um ambiente virtual (opcional)
 
 ``` shell
-python3 -m venv pipeline
+python3 -m venv embeddings
 source embeddings/bin/activate
 ```
 
