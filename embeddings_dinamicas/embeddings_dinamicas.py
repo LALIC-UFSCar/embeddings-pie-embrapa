@@ -55,7 +55,8 @@ for t in textos_com_caminhos:
 
 # CONFIGURATIONS ******************************************************************************
 class Settings:
-    batch_size= 8
+    batch_size= int(sys.argv[3]) if qtde_parametros >= 4 else 8
+    epochs = int(sys.argv[4]) if qtde_parametros >= 4 else 8
     max_len= 512
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seed = 318
@@ -103,7 +104,7 @@ def tokenize_texts(textos, tokenizer):
 
     return {'input_ids': input_ids, 'attention_mask': mask, 'labels': labels}
 
-def train_model(textos, tokenizer, model):
+def train_model(textos, tokenizer, model, model_save_path):
     encodings = tokenize_texts(textos, tokenizer)
     dataset = Dataset(encodings)
     loader = torch.utils.data.DataLoader(dataset, batch_size=Settings.batch_size, shuffle=True)
@@ -114,8 +115,9 @@ def train_model(textos, tokenizer, model):
     model.train()
     # initialize optimizer
     optim = torch.optim.AdamW(model.parameters(), lr=1e-4)
-    epochs = 2
+    epochs = Settings.epochs
 
+    min_loss = 100
     for epoch in range(epochs):
         # setup loop with TQDM and dataloader
         loop = tqdm(loader, leave=True)
@@ -138,6 +140,10 @@ def train_model(textos, tokenizer, model):
             loop.set_description(f'Epoch {epoch}')
             loop.set_postfix(loss=loss.item())
 
+            if loss.item() < min_loss:
+                min_loss = loss.item()
+                model.save_pretrained(model_save_path)
+
 # RUN MODELS ******************************************************************************
 match config_modelo_escolhido:
     case 'roberta-base':
@@ -152,8 +158,7 @@ match config_modelo_escolhido:
             type_vocab_size=1
         )
         model = RobertaForMaskedLM.from_pretrained("roberta-base", config=config)
-        roberta_trained_model = train_model(textos, tokenizer, model)
-        torch.save(roberta_trained_model, "roberta-masked-ml.ckpt")
+        train_model(textos, tokenizer, model, './roberta-base-roberta-masked-ml')
 
     case 'roberta-base-tokenizer-fast':
         #RoBERTa Fast Tokenizer
@@ -167,23 +172,21 @@ match config_modelo_escolhido:
             type_vocab_size=1
         )
         model = RobertaForMaskedLM.from_pretrained("roberta-base", config=config)
-        roberta_trained_model = train_model(textos, tokenizer_fast, model)
-        torch.save(roberta_trained_model, "roberta-masked-ml-fast.ckpt")
+        train_model(textos, tokenizer_fast, model, './roberta-base-roberta-masked-ml-fast')
 
     case 'bertimbau-base':
         # BERT Base
         tokenizer_bertimbau_base = RobertaTokenizer.from_pretrained('neuralmind/bert-base-portuguese-cased')
         model = RobertaForMaskedLM.from_pretrained('neuralmind/bert-base-portuguese-cased')
-        bertimbau_model = train_model(textos, tokenizer_bertimbau_base, model)
-        torch.save(bertimbau_model, "bertimbau-base-model.ckpt")
+        train_model(textos, tokenizer_bertimbau_base, model, './bertimbau-base-roberta-marked-ml')
 
     case 'bertimbau-large':
         # BERT Large
         tokenizer_bertimbau_large = RobertaTokenizer.from_pretrained('neuralmind/bert-large-portuguese-cased')
         model = RobertaForMaskedLM.from_pretrained('neuralmind/bert-large-portuguese-cased')
-        bertimbau_model = train_model(textos, tokenizer_bertimbau_large, model)
-        torch.save(bertimbau_model, "bertimbau-large-model.ckpt")
+        train_model(textos, tokenizer_bertimbau_large, model, './bertimbau-large-roberta-marked-ml')
 
+    #PARA TESTAR
     case 'bertimbau-automatic':
         # Auto Pipeline from Transformers
         config = BertConfig(
