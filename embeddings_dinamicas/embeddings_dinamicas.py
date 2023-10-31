@@ -4,7 +4,7 @@ import numpy as np
 import random
 import torch
 from transformers import RobertaConfig, RobertaForMaskedLM, RobertaTokenizer, RobertaTokenizerFast, pipeline
-from transformers import pipeline, BertModel, BertConfig, BertTokenizer, BertForPreTraining
+from transformers import pipeline, BertConfig, BertTokenizer, BertForPreTraining
 from tqdm.auto import tqdm
 
 # GET PARAMETERS ******************************************************************************
@@ -23,8 +23,8 @@ if (qtde_parametros >= 2):
             print("Erro no nome de configuração do modelo!\n")
             print("As opções de configuração de modelo são:")
             print("\troberta-base | roberta-base-tokenizer-fast | roberta-base-causal-ml | bertimbau-base | bertimbau-large | bertimbau-automatic")
-            print("Comande: python3 embeddings_dinamicas.py <pasta-de-arquivos-txt-corpus>/ | <opcao-config-modelo>")
-            print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ roberta-base")
+            print("Comande: python3 embeddings_dinamicas.py <pasta-de-arquivos-txt-corpus>/ | <opcao-config-modelo>  | <num-batch> | <num-epoch>")
+            print("\tExemplo: python3 embeddings_dinamicas.py /home/corpus/ roberta-base 16 12")
             sys.exit()
 else:
     print("Erro de sintaxe!\n")

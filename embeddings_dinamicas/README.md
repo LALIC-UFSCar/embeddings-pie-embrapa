@@ -45,9 +45,11 @@ python3 embeddings_dinamicas.py <pasta-de-arquivos-txt-corpus>
 Opcionalmente, podem ser passados mais dois parâmetros:
 
 ``` shell
-python3 pipeline_categorizacao.py <pasta-de-arquivos-txt-corpus> <opcao-config-modelo>
+python3 pipeline_categorizacao.py <pasta-de-arquivos-txt-corpus> <opcao-config-modelo> <num-batch> <num-epoch>
 ```
 
-onde `<opcao-config-modelo>` indica a configuração do modelo e tokenizer usado para gerar as embeddings e treinar o modelo linguístico.
-As opções são: `roberta-base`, `roberta-base-tokenizer-fast`, `roberta-base-causal-ml`, `bertimbau-base`, `bertimbau-large`.
-Se nenhuma opção é indicada, é usada como padrão a `roberta-base`.
+onde `<opcao-config-modelo>` indica a configuração do modelo e tokenizer usado para gerar as embeddings e treinar o modelo linguístico;
+`<num-batch>` indica a quantidade de batchs que serão utilizados para o treinamento, o padrão se nada for informado é de 8 batches;
+`<num-epoch>` indica a quantidade de épocas para o treinamento (o resultado com menos loss é mantido), o padrão se nada for informado é de 8 epochs.
+
+As opções para `<opcao-config-modelo>` são: `roberta-base`, `roberta-base-tokenizer-fast`, `roberta-base-causal-ml`, `bertimbau-base`, `bertimbau-large`. Se nenhuma opção é indicada, é usada como padrão a `roberta-base`.
